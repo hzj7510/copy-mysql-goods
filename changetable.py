@@ -270,10 +270,9 @@ def update_gimage_table(conn, default_images_id, new_goods_id):
     select_results = search_tb(conn, gimage_sql)
     isReturn = False
     last_num = 0
-    for select_result in select_results:
+    for select_result in select_results[::-1]:
         # print(select_result['gimage_id'])
-        if str(select_result['gimage_id']) == default_images_id:
-            isReturn = True
+        isReturn = True if str(select_result['gimage_id']) == default_images_id else False
         del select_result['gimage_id']
         select_result['goods_id'] = new_goods_id
         insert_sql = 'INSERT INTO {} ({}) VALUES {}'.format('sdb_gimages', back_keys(select_result.keys()), tuple(select_result.values()))

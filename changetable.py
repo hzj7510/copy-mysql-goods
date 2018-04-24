@@ -67,6 +67,24 @@ def update_tb(conn, sql):
         print('update', e)
 
 
+def get_table_column(tb_name, conn):
+    sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{}'".format(tb_name)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            f_all = cursor.fetchall()
+            return set([x['COLUMN_NAME'] for x in f_all])
+    except Exception as e:
+        print(e)
+
+
+def remove_table_column_name(column_names, names):
+    for name in names:
+        if name in column_names:
+            column_names.remove(name)
+    return ', '.join(column_names)
+
+
 def back_keys(keys):
     s1 = ''
     for index, key in enumerate(keys):
@@ -147,7 +165,10 @@ def update_goods_table(conn, origin_id, purpose_id, table_name):
             insert_sql = "INSERT INTO {} ({}) VALUES {}".format(table_name, back_keys(d.keys()), tuple(d.values()))
             insert_sql = insert_sql.replace('None', 'NULL')
             insert_sql = insert_sql.replace('Decimal', '')
-            zgoods_ids.append(insert_tb(conn, insert_sql))
+            new_id = insert_tb(conn, insert_sql)
+            zgoods_ids.append(new_id)
+            image_default = d['image_default']
+            update_goods(conn, default_images_id=image_default, new_goods_id=new_id)
         return zgoods_ids, goods_ids
 
 
@@ -179,66 +200,100 @@ def update_product_table(conn, goods_ids, zgoods_ids, table_name):
     # return all_zproduct_ids
 
 
+# """
+# 更新mall中的good表
+# """
+# def update_mall_goods_table(conn, origin_id, purpose_id, goods_ids, zgoods_ids, table_name):
+#     search_sql = "SELECT * FROM {} WHERE `company_id`={}".format(table_name, origin_id)
+#     search_result = search_tb(conn, search_sql)
+#     mall_goods_id = []
+#     mall_zgoods_id = []
+#     if len(search_result) > 0:
+#         for d in search_result:  #zgoods_id zgoods_ids
+#             if d['disabled'] == 'true':
+#                 continue
+#             z_id = d['zgoods_id']
+#             index = goods_ids.index(z_id)
+#             mall_goods_id.append(d['goods_id'])
+#             del d['goods_id']
+#             d['company_id'] = purpose_id
+#             d['zgoods_id'] = zgoods_ids[index]
+#             insert_sql = "INSERT INTO {} ({}) VALUES {}".format(table_name, back_keys(d.keys()), tuple(d.values()))
+#             insert_sql = insert_sql.replace('None', 'NULL')
+#             insert_sql = insert_sql.replace('Decimal', '')
+#             mall_zgoods_id.append(insert_tb(conn, insert_sql))
+#         return mall_zgoods_id, mall_goods_id
+#     else:
+#         # raise Exception('查找origin_goods表失败')
+#         return ('查找origin_goods表失败', '查找origin_goods表失败')
+#
+#
+# """
+# 更新mall中的product表
+# """
+# def update_mall_product_table(conn, goods_ids, zgoods_ids, table_name):  #zproduct_ids
+#     sup_conn = connect_database('supplier')
+#     index = 0
+#     out_index = 0
+#     zproduct_ids = []
+#     for old_id, new_id in zip(goods_ids, zgoods_ids): #product_ids zproduct_ids
+#         search_sql = "SELECT * FROM {} WHERE `goods_id`={}".format(table_name, old_id)
+#         search_result = search_tb(conn, search_sql)
+#         search_mall_goodsTB_sql = "SELECT * FROM {} WHERE `goods_id`={}".format('sdb_goods', new_id)
+#
+#         res = search_tb(conn, search_mall_goodsTB_sql)
+#         if res:
+#             res_id = res[0]['zgoods_id']
+#             search_sup_productTB_sql = "SELECT * FROM {} WHERE `goods_id`={}".format('sdb_products', res_id)
+#             sup_res = search_tb(sup_conn, search_sup_productTB_sql)
+#             if sup_res:
+#                 zproduct_ids = [x['product_id'] for x in sup_res]
+#         out_index += 1
+#
+#         for d, zproduct_id in zip(search_result, zproduct_ids):
+#             del d['product_id']
+#             d['goods_id'] = new_id
+#             d['zproduct_id'] = zproduct_id
+#             insert_sql = "INSERT INTO {} ({}) VALUES {}".format(table_name, back_keys(d.keys()), tuple(d.values()))
+#             insert_sql = insert_sql.replace('None', 'NULL')
+#             insert_sql = insert_sql.replace('Decimal', '')
+#             insert_tb(conn, insert_sql)
+#             index += 1
+#     sup_conn.close()
+
 """
-更新mall中的good表
+更新gimages_table
 """
-def update_mall_goods_table(conn, origin_id, purpose_id, goods_ids, zgoods_ids, table_name):
-    search_sql = "SELECT * FROM {} WHERE `company_id`={}".format(table_name, origin_id)
-    search_result = search_tb(conn, search_sql)
-    mall_goods_id = []
-    mall_zgoods_id = []
-    if len(search_result) > 0:
-        for d in search_result:  #zgoods_id zgoods_ids
-            if d['disabled'] == 'true':
-                continue
-            z_id = d['zgoods_id']
-            index = goods_ids.index(z_id)
-            mall_goods_id.append(d['goods_id'])
-            del d['goods_id']
-            d['company_id'] = purpose_id
-            d['zgoods_id'] = zgoods_ids[index]
-            insert_sql = "INSERT INTO {} ({}) VALUES {}".format(table_name, back_keys(d.keys()), tuple(d.values()))
-            insert_sql = insert_sql.replace('None', 'NULL')
-            insert_sql = insert_sql.replace('Decimal', '')
-            mall_zgoods_id.append(insert_tb(conn, insert_sql))
-        return mall_zgoods_id, mall_goods_id
-    else:
-        # raise Exception('查找origin_goods表失败')
-        return ('查找origin_goods表失败', '查找origin_goods表失败')
+def update_gimage_table(conn, default_images_id, new_goods_id):
+    columns = remove_table_column_name(get_table_column('sdb_gimages', conn), ['gimage_id'])
+    gimage_sql = "SELECT * FROM sdb_gimages WHERE goods_id=(SELECT goods_id FROM sdb_gimages WHERE gimage_id='{}')".format(default_images_id)
+    select_results = search_tb(conn, gimage_sql)
+    isReturn = False
+    last_num = 0
+    for select_result in select_results:
+        # print(select_result['gimage_id'])
+        if str(select_result['gimage_id']) == default_images_id:
+            isReturn = True
+        del select_result['gimage_id']
+        select_result['goods_id'] = new_goods_id
+        insert_sql = 'INSERT INTO {} ({}) VALUES {}'.format('sdb_gimages', back_keys(select_result.keys()), tuple(select_result.values()))
+        insert_sql = insert_sql.replace('None', 'NULL')
+        insert_sql = insert_sql.replace('Decimal', '')
+        num = insert_tb(conn, insert_sql)
+        if isReturn:
+             last_num = num
+    return last_num
 
 
 """
-更新mall中的product表
+更新 goods_table image_default
 """
-def update_mall_product_table(conn, goods_ids, zgoods_ids, table_name):  #zproduct_ids
-    sup_conn = connect_database('supplier')
-    index = 0
-    out_index = 0
-    zproduct_ids = []
-    for old_id, new_id in zip(goods_ids, zgoods_ids): #product_ids zproduct_ids
-        search_sql = "SELECT * FROM {} WHERE `goods_id`={}".format(table_name, old_id)
-        search_result = search_tb(conn, search_sql)
-        search_mall_goodsTB_sql = "SELECT * FROM {} WHERE `goods_id`={}".format('sdb_goods', new_id)
-
-        res = search_tb(conn, search_mall_goodsTB_sql)
-        if res:
-            res_id = res[0]['zgoods_id']
-            search_sup_productTB_sql = "SELECT * FROM {} WHERE `goods_id`={}".format('sdb_products', res_id)
-            sup_res = search_tb(sup_conn, search_sup_productTB_sql)
-            if sup_res:
-                zproduct_ids = [x['product_id'] for x in sup_res]
-        out_index += 1
-
-        for d, zproduct_id in zip(search_result, zproduct_ids):
-            del d['product_id']
-            d['goods_id'] = new_id
-            d['zproduct_id'] = zproduct_id
-            insert_sql = "INSERT INTO {} ({}) VALUES {}".format(table_name, back_keys(d.keys()), tuple(d.values()))
-            insert_sql = insert_sql.replace('None', 'NULL')
-            insert_sql = insert_sql.replace('Decimal', '')
-            insert_tb(conn, insert_sql)
-            index += 1
-    sup_conn.close()
+def update_goods(conn, default_images_id, new_goods_id):
+    last_num = update_gimage_table(conn, default_images_id, new_goods_id)
+    update_sql = "UPDATE {} SET image_default={} WHERE goods_id={}".format('sdb_goods', last_num, new_goods_id)
+    update_sql = update_sql.replace('None', 'NULL')
+    update_sql = update_sql.replace('Decimal', '')
+    update_tb(conn, update_sql)
 
 
 def changedb(origin_name, purpose_name):
